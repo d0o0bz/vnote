@@ -1,8 +1,8 @@
-name: Release-ecGraphicsSwitching
+name: Release-ecGraphicsSwitch
 
 on:
   push:
-    branches: [ ecGraphicsSwitching ]
+    branches: [ ecGraphicsSwitch ]
 
   # Allows you to run this workflow manually from the Actions tab.
   workflow_dispatch:
@@ -419,13 +419,13 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: ./artifacts/*
-          commit: ecGraphicsSwitching
-          tag: ecGraphicsSwitching-${{ github.sha }}
-          name: VNote ${{ env.VNOTE_VER }} - ecGraphicsSwitching Build
+          commit: ecGraphicsSwitch
+          tag: ecGraphicsSwitch-${{ github.sha }}
+          name: VNote ${{ env.VNOTE_VER }} - ecGraphicsSwitch Build
           body: |
-            ## VNote ${{ env.VNOTE_VER }} - ecGraphicsSwitching Branch Build
+            ## VNote ${{ env.VNOTE_VER }} - ecGraphicsSwitch Branch Build
             
-            This is an automated build from the `ecGraphicsSwitching` branch.
+            This is an automated build from the `ecGraphicsSwitch` branch.
             
             ### Changes
             - Added macOS GPU strategy setting to reduce power consumption on dual-GPU machines
