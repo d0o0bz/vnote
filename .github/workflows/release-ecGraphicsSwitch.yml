@@ -36,7 +36,6 @@ jobs:
   # ==================== macOS Build ====================
   build-macos:
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_macos) }}
-    environment: Mac-code-sign
     name: Build On MacOS
     timeout-minutes: 120
 
@@ -161,28 +160,37 @@ jobs:
           python3 ${{runner.workspace}}/macdeployqtfix/macdeployqtfix.py ./src/VNote.app/Contents/MacOS/VNote ${{env.Qt6_DIR}}/../..
         working-directory: ${{runner.workspace}}/build
 
-      - name: Codesign Bundle
+      - name: Codesign Bundle (or create unsigned DMG)
         env:
           MACOS_CERTIFICATE: ${{ secrets.CLI_MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PWD: ${{ secrets.CLI_MACOS_CERTIFICATE_PWD }}
           MACOS_CERTIFICATE_NAME: ${{ secrets.CLI_MACOS_CERTIFICATE_NAME }}
           MACOS_CI_KEYCHAIN_PWD: ${{ secrets.CLI_MACOS_CERTIFICATE }}
         run: |
-          echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
-          security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
-          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
-          echo "Codesigning main app bundle"
-          codesign --force --deep -s "$MACOS_CERTIFICATE_NAME" --entitlements ${{github.workspace}}/package/entitlements.xml --options runtime ./src/VNote.app
-          codesign -v -vvv ./src/VNote.app
           hdiutil create -volname "VNote" -srcfolder ./src/VNote.app -ov -format UDZO VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
-          codesign --force --deep -s "$MACOS_CERTIFICATE_NAME" --entitlements ${{github.workspace}}/package/entitlements.xml --options runtime ./VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
-          codesign -v -vvv ./VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
+          if [ -n "$MACOS_CERTIFICATE" ] && [ -n "$MACOS_CERTIFICATE_PWD" ] && [ -n "$MACOS_CERTIFICATE_NAME" ]; then
+            echo "Codesigning: secrets found, signing the bundle..."
+            echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
+            security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            codesign --force --deep -s "$MACOS_CERTIFICATE_NAME" --entitlements ${{github.workspace}}/package/entitlements.xml --options runtime ./src/VNote.app
+            codesign -v -vvv ./src/VNote.app
+            rm -f VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
+            hdiutil create -volname "VNote" -srcfolder ./src/VNote.app -ov -format UDZO VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
+            codesign --force --deep -s "$MACOS_CERTIFICATE_NAME" --entitlements ${{github.workspace}}/package/entitlements.xml --options runtime ./VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
+            codesign -v -vvv ./VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
+            echo "VNOTE_CODESIGNED=true" >> $GITHUB_ENV
+          else
+            echo "Codesigning: secrets NOT found, creating unsigned DMG."
+            echo "VNOTE_CODESIGNED=false" >> $GITHUB_ENV
+          fi
         working-directory: ${{runner.workspace}}/build
 
       - name: "Notarize Bundle"
+        if: env.VNOTE_CODESIGNED == 'true'
         env:
           PROD_MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.CLI_MACOS_NOTARY_USER }}
           PROD_MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.CLI_MACOS_TEAM_ID }}
