@@ -28,6 +28,8 @@ private:
 
   QComboBox *m_openGLComboBox = nullptr;
 
+  QComboBox *m_macGPUComboBox = nullptr;
+
   QCheckBox *m_systemTrayCheckBox = nullptr;
 
   QCheckBox *m_recoverLastSessionCheckBox = nullptr;

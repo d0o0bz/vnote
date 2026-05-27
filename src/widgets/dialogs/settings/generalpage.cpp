@@ -65,6 +65,29 @@ void GeneralPage::setupUI() {
   }
 #endif
 
+#if defined(Q_OS_MACOS)
+  {
+    m_macGPUComboBox = WidgetsFactory::createComboBox(this);
+    m_macGPUComboBox->setToolTip(
+        tr("GPU strategy on macOS dual-GPU machines. "
+           "\"Integrated Only\" disables GPU acceleration in the preview renderer "
+           "to avoid waking the discrete GPU and reduce power consumption. "
+           "\"Software Render\" uses CPU-only rendering for the entire application."));
+
+    m_macGPUComboBox->addItem(tr("Auto"), SessionConfig::MacGPU::Auto);
+    m_macGPUComboBox->addItem(tr("Integrated Only"), SessionConfig::MacGPU::IntegratedOnly);
+    m_macGPUComboBox->addItem(tr("Software Render"), SessionConfig::MacGPU::SoftwareRender);
+
+    const QString label(tr("GPU Strategy"));
+    cardLayout->addWidget(SettingsPageHelper::createSeparator(this));
+    cardLayout->addWidget(SettingsPageHelper::createSettingRow(
+        label, m_macGPUComboBox->toolTip(), m_macGPUComboBox, this));
+    addSearchItem(label, m_macGPUComboBox->toolTip(), m_macGPUComboBox);
+    connect(m_macGPUComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &GeneralPage::pageIsChangedWithRestartNeeded);
+  }
+#endif
+
 #if !defined(Q_OS_MACOS)
   {
     const QString label(tr("Minimize to system tray"));
@@ -121,6 +144,12 @@ void GeneralPage::loadInternal() {
     m_openGLComboBox->setCurrentIndex(idx);
   }
 
+  if (m_macGPUComboBox) {
+    int idx = m_macGPUComboBox->findData(sessionConfig.getMacGPU());
+    Q_ASSERT(idx != -1);
+    m_macGPUComboBox->setCurrentIndex(idx);
+  }
+
   if (m_systemTrayCheckBox) {
     int toTray = sessionConfig.getMinimizeToSystemTray();
     m_systemTrayCheckBox->setChecked(toTray > 0);
@@ -144,6 +173,11 @@ bool GeneralPage::saveInternal() {
   if (m_openGLComboBox) {
     int opt = m_openGLComboBox->currentData().toInt();
     sessionConfig.setOpenGL(static_cast<SessionConfig::OpenGL>(opt));
+  }
+
+  if (m_macGPUComboBox) {
+    int opt = m_macGPUComboBox->currentData().toInt();
+    sessionConfig.setMacGPU(static_cast<SessionConfig::MacGPU>(opt));
   }
 
   if (m_systemTrayCheckBox) {

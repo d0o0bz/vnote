@@ -63,6 +63,9 @@ public:
 
   enum OpenGL { None, Desktop, Angle, Software };
 
+  // macOS GPU strategy to avoid discrete GPU wake-up on dual-GPU machines.
+  enum MacGPU { Auto, IntegratedOnly, SoftwareRender };
+
   struct ExternalProgram {
     void fromJson(const QJsonObject &p_jobj);
 
@@ -116,11 +119,17 @@ public:
   OpenGL getOpenGL() const;
   void setOpenGL(OpenGL p_option);
 
+  MacGPU getMacGPU() const;
+  void setMacGPU(MacGPU p_option);
+
   bool getSystemTitleBarEnabled() const;
   void setSystemTitleBarEnabled(bool p_enabled);
 
   static QString openGLToString(OpenGL p_option);
   static OpenGL stringToOpenGL(const QString &p_str);
+
+  static QString macGPUToString(MacGPU p_option);
+  static MacGPU stringToMacGPU(const QString &p_str);
 
   static QString openModeToString(QuickAccessOpenMode p_mode);
   static QuickAccessOpenMode stringToOpenMode(const QString &p_str);
@@ -208,6 +217,8 @@ private:
   MainWindowStateGeometry m_mainWindowStateGeometry;
 
   OpenGL m_openGL = OpenGL::None;
+
+  MacGPU m_macGPU = MacGPU::Auto;
 
   // Whether use system's title bar or not.
   bool m_systemTitleBarEnabled = false;

@@ -141,6 +141,36 @@ void setOpenGLOption(const ConfigMgr2 &configMgr) {
 #endif
 }
 
+void setMacGPUOption(const ConfigMgr2 &configMgr) {
+  // Set macOS GPU strategy to avoid discrete GPU wake-up on dual-GPU machines.
+  // - Auto: rely on NSSupportsAutomaticGraphicsSwitching (default).
+  // - IntegratedOnly: disable GPU acceleration in Chromium WebEngine to avoid
+  //   waking the discrete GPU; the integrated GPU or CPU is used instead.
+  // - SoftwareRender: use Qt software OpenGL rendering (no GPU at all).
+#if defined(Q_OS_MACOS)
+  {
+    auto option = configMgr.getSessionConfig().getMacGPU();
+    qDebug() << "macOS GPU option" << SessionConfig::macGPUToString(option);
+    switch (option) {
+    case SessionConfig::MacGPU::IntegratedOnly:
+      // Disable Chromium GPU acceleration so it does not wake the discrete GPU.
+      // The WebEngine process will use software compositing instead.
+      qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu");
+      break;
+
+    case SessionConfig::MacGPU::SoftwareRender:
+      // Use Qt software OpenGL for the entire application (no GPU at all).
+      QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
+      qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu");
+      break;
+
+    default:
+      break;
+    }
+  }
+#endif
+}
+
 void disableSandboxIfNeeded() {
 #if defined(Q_OS_LINUX)
   // Disable sandbox on Linux.
@@ -276,6 +306,8 @@ int main(int argc, char *argv[]) {
     qInfo() << "ViewWindowFactory registered";
 
     setOpenGLOption(configMgr);
+
+    setMacGPUOption(configMgr);
 
     disableSandboxIfNeeded();
 

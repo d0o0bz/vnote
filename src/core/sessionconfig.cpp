@@ -148,6 +148,11 @@ void SessionConfig::loadCore(const QJsonObject &p_session) {
     m_openGL = stringToOpenGL(option);
   }
 
+  {
+    auto option = readString(coreObj, QStringLiteral("macgpu"));
+    m_macGPU = stringToMacGPU(option);
+  }
+
   if (!isUndefinedKey(coreObj, QStringLiteral("systemTitleBar"))) {
     m_systemTitleBarEnabled = readBool(coreObj, QStringLiteral("systemTitleBar"));
   } else {
@@ -178,6 +183,7 @@ QJsonObject SessionConfig::saveCore() const {
   QJsonObject coreObj;
   coreObj[QStringLiteral("newNotebookDefaultRootFolderPath")] = m_newNotebookDefaultRootFolderPath;
   coreObj[QStringLiteral("opengl")] = openGLToString(m_openGL);
+  coreObj[QStringLiteral("macgpu")] = macGPUToString(m_macGPU);
   coreObj[QStringLiteral("systemTitleBar")] = m_systemTitleBarEnabled;
   if (m_minimizeToSystemTray != -1) {
     coreObj[QStringLiteral("minimizeToSystemTray")] = m_minimizeToSystemTray > 0;
@@ -280,6 +286,32 @@ SessionConfig::OpenGL SessionConfig::stringToOpenGL(const QString &p_str) {
     return OpenGL::Angle;
   } else {
     return OpenGL::None;
+  }
+}
+
+SessionConfig::MacGPU SessionConfig::getMacGPU() const { return m_macGPU; }
+
+void SessionConfig::setMacGPU(MacGPU p_option) { updateConfig(m_macGPU, p_option, this); }
+
+QString SessionConfig::macGPUToString(MacGPU p_option) {
+  switch (p_option) {
+  case MacGPU::IntegratedOnly:
+    return QStringLiteral("integrated");
+  case MacGPU::SoftwareRender:
+    return QStringLiteral("software");
+  default:
+    return QStringLiteral("auto");
+  }
+}
+
+SessionConfig::MacGPU SessionConfig::stringToMacGPU(const QString &p_str) {
+  auto option = p_str.toLower();
+  if (option == QStringLiteral("integrated")) {
+    return MacGPU::IntegratedOnly;
+  } else if (option == QStringLiteral("software")) {
+    return MacGPU::SoftwareRender;
+  } else {
+    return MacGPU::Auto;
   }
 }
 
