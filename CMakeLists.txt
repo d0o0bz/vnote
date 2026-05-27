@@ -60,6 +60,11 @@ endif()
 
 add_subdirectory(src)
 
+# Option to disable tests build (useful for release builds or when test files are missing)
+option(VNOTE_BUILD_TESTS "Build tests" ON)
+
 # TODO: find a better way to organize tests
-enable_testing()
-add_subdirectory(tests)
+if(VNOTE_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

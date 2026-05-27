@@ -118,7 +118,7 @@ jobs:
         run: |
           qmake -v
           cmake --version
-          cmake -DMACDEPLOYQTFIX_EXECUTABLE=${{runner.workspace}}/macdeployqtfix/macdeployqtfix.py -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"  ${GITHUB_WORKSPACE}
+          cmake -DVNOTE_BUILD_TESTS=OFF -DMACDEPLOYQTFIX_EXECUTABLE=${{runner.workspace}}/macdeployqtfix/macdeployqtfix.py -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"  ${GITHUB_WORKSPACE}
         working-directory: ${{runner.workspace}}/build
 
       - name: Build Project
@@ -284,7 +284,7 @@ jobs:
         run: |
           qmake -v
           cmake --version
-          cmake ${GITHUB_WORKSPACE}
+          cmake -DVNOTE_BUILD_TESTS=OFF ${GITHUB_WORKSPACE}
         working-directory: ${{runner.workspace}}/build
 
       - name: Build Project
@@ -377,7 +377,7 @@ jobs:
         run: |
           cmake --version
           call "${{matrix.config.vs_cmd}}"
-          cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DOPENSSL_EXTRA_LIB_DIR=${{runner.workspace}}\build\openssl-utils.git\1.1.1j\Win_x64 %GITHUB_WORKSPACE%
+          cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DVNOTE_BUILD_TESTS=OFF -DOPENSSL_EXTRA_LIB_DIR=${{runner.workspace}}\build\openssl-utils.git\1.1.1j\Win_x64 %GITHUB_WORKSPACE%
           cmake --build .
           cmake --build . --target=pack
           7z x VNote*.zip -o*
