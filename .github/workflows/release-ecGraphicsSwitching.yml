@@ -1,0 +1,443 @@
+name: Release-ecGraphicsSwitching
+
+on:
+  push:
+    branches: [ ecGraphicsSwitching ]
+
+  # Allows you to run this workflow manually from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Run the build with tmate debugging enabled'
+        required: false
+        default: false
+
+env:
+    VNOTE_VER: 4.0.1
+    CMAKE_VER: 3.24.3
+
+jobs:
+  # ==================== macOS Build ====================
+  build-macos:
+    environment: Mac-code-sign
+    name: Build On MacOS
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: "Build on Arm64"
+            os: macos-latest
+            arch: universal
+            qt: 6.8.3
+
+    runs-on: ${{matrix.config.os}}
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Init Submodules
+        run: |
+          auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+          git submodule sync --recursive
+          git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+
+      - name: Install Dependencies
+        run: |
+          brew install tree libiodbc libpq
+
+      - name: Fix SQL
+        run: |
+          sudo mkdir -p /usr/local/opt/libiodbc/lib
+          sudo ln -s /opt/homebrew/opt/libiodbc/lib/libiodbc.2.dylib /usr/local/opt/libiodbc/lib/libiodbc.2.dylib
+          sudo mkdir -p /Applications/Postgres.app/Contents/Versions/14/lib
+          sudo ln -s /opt/homebrew/Cellar/libpq/16.3/lib/libpq.5.dylib /Applications/Postgres.app/Contents/Versions/14/lib/libpq.5.dylib
+
+      - name: Install a fresh CMake
+        run: |
+          wget --no-verbose https://github.com/Kitware/CMake/releases/download/v${CMAKE_VER}/cmake-${CMAKE_VER}-macos-universal.tar.gz
+          tar xzf cmake-${CMAKE_VER}-macos-universal.tar.gz
+          sudo rm -f /usr/local/bin/cmake /usr/local/bin/cpack
+          sudo ln -s ${{runner.workspace}}/cmake-${CMAKE_VER}-macos-universal/CMake.app/Contents/bin/cmake /usr/local/bin/cmake
+          sudo ln -s ${{runner.workspace}}/cmake-${CMAKE_VER}-macos-universal/CMake.app/Contents/bin/cpack /usr/local/bin/cpack
+        working-directory: ${{runner.workspace}}
+
+      - name: Install macdeployqtfix
+        run: |
+          git clone https://github.com/tamlok/macdeployqtfix.git macdeployqtfix --depth=1
+        working-directory: ${{runner.workspace}}
+
+      - name: Install optool
+        run: |
+          wget --no-verbose https://github.com/alexzielenski/optool/releases/download/0.1/optool.zip
+          unzip ./optool.zip
+          sudo ln -s ./optool /usr/local/bin/optool
+        working-directory: ${{runner.workspace}}
+
+      - name: Cache Qt
+        id: cache-qt
+        uses: actions/cache@v4
+        with:
+          path: ${{runner.workspace}}/Qt
+          key: ${{ runner.os }}-QtCache-6.8
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{matrix.config.qt}}
+          target: desktop
+          modules: 'qtwebengine qtwebchannel qtpositioning qtpdf qtimageformats qt5compat qtserialport'
+          cache: 'true'
+
+      - name: Create Build Dir
+        run: mkdir build
+        working-directory: ${{runner.workspace}}
+
+      - name: Configure Project
+        run: |
+          qmake -v
+          cmake --version
+          cmake -DMACDEPLOYQTFIX_EXECUTABLE=${{runner.workspace}}/macdeployqtfix/macdeployqtfix.py -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"  ${GITHUB_WORKSPACE}
+        working-directory: ${{runner.workspace}}/build
+
+      - name: Build Project
+        run: |
+          rm ${{env.Qt6_DIR}}/plugins/sqldrivers/libqsqlmimer.dylib
+          rm ${{env.Qt6_DIR}}/plugins/sqldrivers/libqsqlodbc.dylib
+          rm ${{env.Qt6_DIR}}/plugins/sqldrivers/libqsqlpsql.dylib
+          cmake --build . --target pack
+          python3 ${{runner.workspace}}/macdeployqtfix/macdeployqtfix.py ./src/VNote.app/Contents/MacOS/VNote ${{env.Qt6_DIR}}/../..
+          for rpath in $(otool -l ./src/VNote.app/Contents/MacOS/VNote | awk '/LC_RPATH/ {getline; getline; print $2}' | grep 'vnote'); do
+            echo "Checking rpath: $rpath"
+            if otool -l ./src/VNote.app/Contents/MacOS/VNote | grep -q "$rpath"; then
+              echo "Deleting rpath: $rpath"
+              install_name_tool -delete_rpath "$rpath" ./src/VNote.app/Contents/MacOS/VNote
+            else
+              echo "Rpath not found: $rpath"
+            fi
+          done
+          for rpath in $(otool -l ./src/VNote.app/Contents/Frameworks/libVTextEdit.dylib | awk '/LC_RPATH/ {getline; getline; print $2}' | grep 'vnote'); do
+            echo "Checking rpath: $rpath"
+            if otool -l ./src/VNote.app/Contents/Frameworks/libVTextEdit.dylib | grep -q "$rpath"; then
+              echo "Deleting rpath: $rpath"
+              install_name_tool -delete_rpath "$rpath" ./src/VNote.app/Contents/Frameworks/libVTextEdit.dylib
+            else
+              echo "Rpath not found: $rpath"
+            fi
+          done
+          python3 ${{runner.workspace}}/macdeployqtfix/macdeployqtfix.py ./src/VNote.app/Contents/MacOS/VNote ${{env.Qt6_DIR}}/../..
+        working-directory: ${{runner.workspace}}/build
+
+      - name: Codesign Bundle
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.CLI_MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.CLI_MACOS_CERTIFICATE_PWD }}
+          MACOS_CERTIFICATE_NAME: ${{ secrets.CLI_MACOS_CERTIFICATE_NAME }}
+          MACOS_CI_KEYCHAIN_PWD: ${{ secrets.CLI_MACOS_CERTIFICATE }}
+        run: |
+          echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
+          security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+          echo "Codesigning main app bundle"
+          codesign --force --deep -s "$MACOS_CERTIFICATE_NAME" --entitlements ${{github.workspace}}/package/entitlements.xml --options runtime ./src/VNote.app
+          codesign -v -vvv ./src/VNote.app
+          hdiutil create -volname "VNote" -srcfolder ./src/VNote.app -ov -format UDZO VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
+          codesign --force --deep -s "$MACOS_CERTIFICATE_NAME" --entitlements ${{github.workspace}}/package/entitlements.xml --options runtime ./VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
+          codesign -v -vvv ./VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
+        working-directory: ${{runner.workspace}}/build
+
+      - name: "Notarize Bundle"
+        env:
+          PROD_MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.CLI_MACOS_NOTARY_USER }}
+          PROD_MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.CLI_MACOS_TEAM_ID }}
+          PROD_MACOS_NOTARIZATION_PWD: ${{ secrets.CLI_MACOS_NOTARY_PWD }}
+        run: |
+          echo "Create keychain profile"
+          xcrun notarytool store-credentials "notarytool-profile" --apple-id "$PROD_MACOS_NOTARIZATION_APPLE_ID" --team-id "$PROD_MACOS_NOTARIZATION_TEAM_ID" --password "$PROD_MACOS_NOTARIZATION_PWD"
+          echo "Notarize app"
+          xcrun notarytool submit "${{runner.workspace}}/build/VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg" --keychain-profile "notarytool-profile" --wait
+          echo "Attach staple"
+          xcrun stapler staple "${{runner.workspace}}/build/VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg"
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
+
+      - name: Archive DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching
+          path: ${{runner.workspace}}/build/VNote-${{env.VNOTE_VER}}-mac-${{matrix.config.arch}}-ecGraphicsSwitching.dmg
+
+  # ==================== Linux Build ====================
+  build-linux:
+    name: Build On Ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 1
+
+      - name: Init Submodules
+        run: |
+          auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+          git submodule sync --recursive
+          git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+
+      - name: Install a Fresh CMake
+        run: |
+          wget --no-verbose https://github.com/Kitware/CMake/releases/download/v${CMAKE_VER}/cmake-${CMAKE_VER}-Linux-x86_64.sh
+          chmod +x cmake-${CMAKE_VER}-Linux-x86_64.sh
+          mkdir ${{runner.workspace}}/cmake
+          sudo ./cmake-${CMAKE_VER}-Linux-x86_64.sh --skip-license --prefix=${{runner.workspace}}/cmake
+          sudo rm -f /usr/local/bin/cmake /usr/local/bin/cpack
+          sudo ln -s ${{runner.workspace}}/cmake/bin/cmake /usr/local/bin/cmake
+          sudo ln -s ${{runner.workspace}}/cmake/bin/cpack /usr/local/bin/cpack
+
+      - name: Install linuxdeploy
+        uses: miurahr/install-linuxdeploy-action@v1
+        with:
+          plugins: qt appimage
+
+      - name: Install Dependencies
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libfcitx5-qt-dev fcitx-libs-dev extra-cmake-modules libxkbcommon-dev
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tree
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y fuse libxcb-cursor-dev
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libssl-dev
+          python3 -m pip config set global.break-system-packages true
+
+      - name: Cache Qt
+        id: cache-qt
+        uses: actions/cache@v4
+        with:
+          path: ${{runner.workspace}}/Qt
+          key: ${{ runner.os }}-QtCache-6.8
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: 6.8.3
+          target: desktop
+          modules: 'qtwebengine qtwebchannel qtpositioning qtpdf qtimageformats qt5compat qtserialport'
+          tools: 'tools_opensslv3_src'
+          cache: 'true'
+
+      - name: Compile OpenSSLV3
+        run: |
+          cd ${Qt6_DIR}/../../Tools/OpenSSLv3/src
+          ./Configure
+          make -j2
+          sudo make install
+
+      - name: Create Build Dir
+        run: mkdir build
+        working-directory: ${{runner.workspace}}
+
+      - name: Compile fcitxqt5
+        run: |
+          git clone https://github.com/fcitx/fcitx-qt5
+          cd fcitx-qt5
+          mkdir build && cd build
+          cmake -DENABLE_QT5=OFF -DENABLE_QT6=ON ..
+          make -j2
+          sudo make install
+        working-directory: ${{runner.workspace}}/build
+
+      - name: Compile qt6ct
+        run: |
+          git clone https://github.com/trialuser02/qt6ct qt6ct.git
+          cd qt6ct.git
+          qmake
+          make -j$(nproc) && sudo make install
+        working-directory: ${{runner.workspace}}/build
+
+      - name: Configure Project
+        run: |
+          qmake -v
+          cmake --version
+          cmake ${GITHUB_WORKSPACE}
+        working-directory: ${{runner.workspace}}/build
+
+      - name: Build Project
+        run: |
+          rm ${{runner.workspace}}/Qt/6.*/gcc_64/plugins/sqldrivers/libqsqlmimer.so
+          cmake --build . --target pack
+        working-directory: ${{runner.workspace}}/build
+
+      - name: Fix Package
+        run: |
+          mkdir fixpackage
+          mv VNote*.AppImage ./fixpackage
+          pushd fixpackage
+          ./VNote*.AppImage --appimage-extract
+          rm ./squashfs-root/usr/lib/libnss*.so
+          rm VNote*.AppImage
+          linuxdeploy-plugin-appimage-x86_64.AppImage --appdir=./squashfs-root
+          mv VNote*.AppImage ../
+          popd
+          mv VNote*.AppImage VNote-${{env.VNOTE_VER}}-linux-x64-ecGraphicsSwitching.AppImage
+        working-directory: ${{runner.workspace}}/build
+
+      - name: Archive Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VNote-${{env.VNOTE_VER}}-linux-x64-ecGraphicsSwitching.AppImage
+          path: ${{runner.workspace}}/build/VNote-${{env.VNOTE_VER}}-linux-x64-ecGraphicsSwitching.AppImage
+
+  # ==================== Windows Build ====================
+  build-windows:
+    name: ${{ matrix.config.name }}
+    runs-on: windows-${{ matrix.config.vs_version }}
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: "Build on Win64 Qt 6"
+            arch: win64_msvc2022_64
+            vs_version: 2022
+            vs_cmd: "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Auxiliary\\Build\\vcvars64.bat"
+            qt: 6.8.3
+            qt_modules: "qtwebengine qtwebchannel qtpositioning qtpdf qtimageformats qt5compat"
+            qt_tools: tools_opensslv3_x64
+            suffix: "-ecGraphicsSwitching"
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Init Submodules
+        shell: bash
+        run: |
+          auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+          git submodule sync --recursive
+          git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+
+      - name: Cache Qt
+        id: cache-qt
+        uses: actions/cache@v4
+        with:
+          path: ${{runner.workspace}}/Qt
+          key: ${{runner.os}}-${{matrix.config.arch}}-QtCache-${{matrix.config.qt}}
+
+      - name: Install Qt Official Build
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{matrix.config.qt}}
+          target: desktop
+          arch: ${{matrix.config.arch}}
+          modules: ${{matrix.config.qt_modules}}
+          tools: ${{matrix.config.qt_tools}}
+          cache: 'true'
+
+      - name: Create Build Dir
+        shell: bash
+        run: mkdir build
+        working-directory: ${{runner.workspace}}
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
+
+      - name: Configure and Build Project
+        shell: cmd
+        run: |
+          cmake --version
+          call "${{matrix.config.vs_cmd}}"
+          cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DOPENSSL_EXTRA_LIB_DIR=${{runner.workspace}}\build\openssl-utils.git\1.1.1j\Win_x64 %GITHUB_WORKSPACE%
+          cmake --build .
+          cmake --build . --target=pack
+          7z x VNote*.zip -o*
+          dir
+        working-directory: ${{runner.workspace}}/build
+
+      - name: Archive Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VNote-${{env.VNOTE_VER}}-win64${{matrix.config.suffix}}
+          path: ${{runner.workspace}}/build/VNote-${{env.VNOTE_VER}}-win64${{matrix.config.suffix}}
+
+      - name: Archive Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: VNote-${{env.VNOTE_VER}}-win64${{matrix.config.suffix}}.msi
+          path: ${{runner.workspace}}/build/VNote*.msi
+
+  # ==================== Release ====================
+  release:
+    name: Create Release
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: VNote-${{env.VNOTE_VER}}-mac-universal-ecGraphicsSwitching
+          path: ./artifacts
+
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: VNote-${{env.VNOTE_VER}}-linux-x64-ecGraphicsSwitching.AppImage
+          path: ./artifacts
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: VNote-${{env.VNOTE_VER}}-win64-ecGraphicsSwitching
+          path: ./artifacts
+
+      - name: Download Windows Installer
+        uses: actions/download-artifact@v4
+        with:
+          name: VNote-${{env.VNOTE_VER}}-win64-ecGraphicsSwitching.msi
+          path: ./artifacts
+
+      - name: List Artifacts
+        run: ls -la ./artifacts
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1.11.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: ./artifacts/*
+          commit: ecGraphicsSwitching
+          tag: ecGraphicsSwitching-${{ github.sha }}
+          name: VNote ${{ env.VNOTE_VER }} - ecGraphicsSwitching Build
+          body: |
+            ## VNote ${{ env.VNOTE_VER }} - ecGraphicsSwitching Branch Build
+            
+            This is an automated build from the `ecGraphicsSwitching` branch.
+            
+            ### Changes
+            - Added macOS GPU strategy setting to reduce power consumption on dual-GPU machines
+            - Options: Auto (default), Integrated Only, Software Render
+            - Helps resolve overheating issues on macOS Intel x86 dual-GPU systems
+            
+            ### Downloads
+            - **macOS**: VNote-${{ env.VNOTE_VER }}-mac-universal-ecGraphicsSwitching.dmg
+            - **Linux**: VNote-${{ env.VNOTE_VER }}-linux-x64-ecGraphicsSwitching.AppImage
+            - **Windows**: VNote-${{ env.VNOTE_VER }}-win64-ecGraphicsSwitching (folder)
+            - **Windows Installer**: VNote-${{ env.VNOTE_VER }}-win64-ecGraphicsSwitching.msi
+            
+            Commit: ${{ github.sha }}
+          draft: false
+          prerelease: true
