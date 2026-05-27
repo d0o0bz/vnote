@@ -143,25 +143,44 @@ void setOpenGLOption(const ConfigMgr2 &configMgr) {
 
 void setMacGPUOption(const ConfigMgr2 &configMgr) {
   // Set macOS GPU strategy to avoid discrete GPU wake-up on dual-GPU machines.
+  // On Intel dual-GPU Macs, the discrete GPU is woken by two independent triggers:
+  //   1. Qt main process: Qt 6 RHI defaults to Metal backend, which calls
+  //      MTLCreateSystemDefaultDevice() and wakes the discrete GPU.
+  //   2. Chromium subprocess (QtWebEngineProcess): creates CGL context / Metal
+  //      device / IOSurface, which wakes the discrete GPU regardless of flags.
+  //
   // - Auto: rely on NSSupportsAutomaticGraphicsSwitching (default).
-  // - IntegratedOnly: disable GPU acceleration in Chromium WebEngine to avoid
-  //   waking the discrete GPU; the integrated GPU or CPU is used instead.
-  // - SoftwareRender: use Qt software OpenGL rendering (no GPU at all).
+  // - IntegratedOnly: force Qt software rendering + disable Chromium GPU to
+  //   minimize discrete GPU wake-up. Note: Chromium subprocess may still wake
+  //   the discrete GPU due to its internal GPU process initialization.
+  // - SoftwareRender: same as IntegratedOnly but with additional Chromium
+  //   flags for maximum software rendering.
 #if defined(Q_OS_MACOS)
   {
     auto option = configMgr.getSessionConfig().getMacGPU();
     qDebug() << "macOS GPU option" << SessionConfig::macGPUToString(option);
     switch (option) {
     case SessionConfig::MacGPU::IntegratedOnly:
-      // Disable Chromium GPU acceleration so it does not wake the discrete GPU.
-      // The WebEngine process will use software compositing instead.
-      qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu");
+      // Force Qt to use software rendering (avoids Metal waking discrete GPU).
+      QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
+      qputenv("QSG_RHI_BACKEND", "software");
+
+      // Disable Chromium GPU acceleration.
+      // Note: --disable-gpu only disables GPU rasterization/compositing;
+      // the GPU process still starts and may still wake the discrete GPU.
+      qputenv("QTWEBENGINE_CHROMIUM_FLAGS",
+              "--disable-gpu --disable-gpu-compositing");
       break;
 
     case SessionConfig::MacGPU::SoftwareRender:
-      // Use Qt software OpenGL for the entire application (no GPU at all).
+      // Force Qt to use software rendering.
       QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
-      qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu");
+      qputenv("QSG_RHI_BACKEND", "software");
+
+      // Maximum software rendering for Chromium.
+      qputenv("QTWEBENGINE_CHROMIUM_FLAGS",
+              "--disable-gpu --disable-gpu-compositing "
+              "--disable-software-rasterizer");
       break;
 
     default:

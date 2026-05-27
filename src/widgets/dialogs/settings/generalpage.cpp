@@ -69,10 +69,12 @@ void GeneralPage::setupUI() {
   {
     m_macGPUComboBox = WidgetsFactory::createComboBox(this);
     m_macGPUComboBox->setToolTip(
-        tr("GPU strategy on macOS dual-GPU machines. "
-           "\"Integrated Only\" disables GPU acceleration in the preview renderer "
-           "to avoid waking the discrete GPU and reduce power consumption. "
-           "\"Software Render\" uses CPU-only rendering for the entire application."));
+        tr("GPU strategy on macOS dual-GPU machines (Intel x86). "
+           "\"Integrated Only\" forces software rendering for Qt and disables "
+           "GPU in the preview renderer to reduce power consumption. "
+           "\"Software Render\" uses maximum CPU-only rendering. "
+           "Note: the preview renderer's subprocess may still wake the "
+           "discrete GPU briefly regardless of this setting."));
 
     m_macGPUComboBox->addItem(tr("Auto"), SessionConfig::MacGPU::Auto);
     m_macGPUComboBox->addItem(tr("Integrated Only"), SessionConfig::MacGPU::IntegratedOnly);
