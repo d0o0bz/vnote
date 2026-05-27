@@ -121,6 +121,18 @@ jobs:
           cmake -DVNOTE_BUILD_TESTS=OFF -DMACDEPLOYQTFIX_EXECUTABLE=${{runner.workspace}}/macdeployqtfix/macdeployqtfix.py -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"  ${GITHUB_WORKSPACE}
         working-directory: ${{runner.workspace}}/build
 
+      - name: Fix zlib fdopen macro conflict on macOS
+        # libgit2's zlib defines fdopen macro which conflicts with macOS SDK
+        run: |
+          ZUTIL_H="${GITHUB_WORKSPACE}/libs/vxcore/third_party/libgit2/deps/zlib/zutil.h"
+          if [ -f "$ZUTIL_H" ]; then
+            echo "Patching zutil.h to fix fdopen macro conflict..."
+            sed -i.bak 's/#        define fdopen(fd,mode) NULL/\/\/ #        define fdopen(fd,mode) NULL/' "$ZUTIL_H"
+            echo "Patch applied."
+          else
+            echo "zutil.h not found, skipping patch."
+          fi
+
       - name: Build Project
         run: |
           rm ${{env.Qt6_DIR}}/plugins/sqldrivers/libqsqlmimer.dylib
