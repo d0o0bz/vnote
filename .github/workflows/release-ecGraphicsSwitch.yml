@@ -35,7 +35,7 @@ env:
 jobs:
   # ==================== macOS Build ====================
   build-macos:
-    if: ${{ github.event_name == 'push' || inputs.build_macos }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_macos) }}
     environment: Mac-code-sign
     name: Build On MacOS
     timeout-minutes: 120
@@ -195,7 +195,7 @@ jobs:
 
   # ==================== Linux Build ====================
   build-linux:
-    if: ${{ github.event_name == 'push' || inputs.build_linux }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_linux }}
     name: Build On Ubuntu
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -315,7 +315,7 @@ jobs:
 
   # ==================== Windows Build ====================
   build-windows:
-    if: ${{ github.event_name == 'push' || inputs.build_windows }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_windows }}
     name: ${{ matrix.config.name }}
     runs-on: windows-${{ matrix.config.vs_version }}
     timeout-minutes: 120
