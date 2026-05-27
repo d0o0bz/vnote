@@ -28,6 +28,9 @@ on:
         required: false
         default: false
 
+permissions:
+  contents: write
+
 env:
     VNOTE_VER: 4.0.1
     CMAKE_VER: 3.24.3
