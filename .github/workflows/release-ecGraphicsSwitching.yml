@@ -7,6 +7,21 @@ on:
   # Allows you to run this workflow manually from the Actions tab.
   workflow_dispatch:
     inputs:
+      build_macos:
+        type: boolean
+        description: 'Build macOS version'
+        required: false
+        default: true
+      build_linux:
+        type: boolean
+        description: 'Build Linux version'
+        required: false
+        default: false
+      build_windows:
+        type: boolean
+        description: 'Build Windows version'
+        required: false
+        default: false
       debug_enabled:
         type: boolean
         description: 'Run the build with tmate debugging enabled'
@@ -20,6 +35,7 @@ env:
 jobs:
   # ==================== macOS Build ====================
   build-macos:
+    if: ${{ github.event_name == 'push' || inputs.build_macos }}
     environment: Mac-code-sign
     name: Build On MacOS
     timeout-minutes: 120
@@ -179,6 +195,7 @@ jobs:
 
   # ==================== Linux Build ====================
   build-linux:
+    if: ${{ github.event_name == 'push' || inputs.build_linux }}
     name: Build On Ubuntu
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -298,6 +315,7 @@ jobs:
 
   # ==================== Windows Build ====================
   build-windows:
+    if: ${{ github.event_name == 'push' || inputs.build_windows }}
     name: ${{ matrix.config.name }}
     runs-on: windows-${{ matrix.config.vs_version }}
     timeout-minutes: 120
@@ -382,30 +400,35 @@ jobs:
   release:
     name: Create Release
     needs: [build-macos, build-linux, build-windows]
+    if: always() && (needs.build-macos.result == 'success' || needs.build-linux.result == 'success' || needs.build-windows.result == 'success')
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v2
 
       - name: Download macOS Artifact
+        if: needs.build-macos.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: VNote-${{env.VNOTE_VER}}-mac-universal-ecGraphicsSwitching
           path: ./artifacts
 
       - name: Download Linux Artifact
+        if: needs.build-linux.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: VNote-${{env.VNOTE_VER}}-linux-x64-ecGraphicsSwitching.AppImage
           path: ./artifacts
 
       - name: Download Windows Artifact
+        if: needs.build-windows.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: VNote-${{env.VNOTE_VER}}-win64-ecGraphicsSwitching
           path: ./artifacts
 
       - name: Download Windows Installer
+        if: needs.build-windows.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: VNote-${{env.VNOTE_VER}}-win64-ecGraphicsSwitching.msi
